@@ -11,6 +11,8 @@ namespace MinionScaler;
 public sealed unsafe class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/minionscaler";
+    private const string CommandAlias = "/minionscale";
+    private const string ConfigCommandName = "/minionscalerconfig";
 
     [PluginService] private static IDalamudPluginInterface PluginInterface { get; set; } = null!;
     [PluginService] private static ICommandManager CommandManager { get; set; } = null!;
@@ -35,6 +37,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
         {
             HelpMessage = "Open Minion Scaler settings.",
         });
+        CommandManager.AddHandler(CommandAlias, new CommandInfo(OnCommand)
+        {
+            HelpMessage = "Open Minion Scaler settings.",
+        });
+        CommandManager.AddHandler(ConfigCommandName, new CommandInfo(OnCommand)
+        {
+            HelpMessage = "Open Minion Scaler settings.",
+        });
 
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
@@ -47,6 +57,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         CommandManager.RemoveHandler(CommandName);
+        CommandManager.RemoveHandler(CommandAlias);
+        CommandManager.RemoveHandler(ConfigCommandName);
 
         RestoreTrackedMinions();
 
