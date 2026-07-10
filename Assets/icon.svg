@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Minion Scaler icon">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="20" x2="224" y2="236" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#20395b"/>
+      <stop offset="1" stop-color="#55aa94"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="url(#bg)"/>
+  <circle cx="128" cy="124" r="76" fill="none" stroke="#f1f7ff" stroke-width="12"/>
+  <circle cx="128" cy="54" r="26" fill="#f5d668"/>
+  <text x="128" y="154" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="58" font-weight="700" fill="#ffffff">MS</text>
+</svg>
