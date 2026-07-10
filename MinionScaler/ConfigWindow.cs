@@ -1,10 +1,13 @@
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
+using System.Numerics;
 
 namespace MinionScaler;
 
 public sealed class ConfigWindow : Window, IDisposable
 {
+    private static readonly Vector2 IconSize = new(24.0f, 24.0f);
+
     private readonly Plugin plugin;
 
     public ConfigWindow(Plugin plugin)
@@ -36,8 +39,8 @@ public sealed class ConfigWindow : Window, IDisposable
         {
             ImGui.PushID($"visible-{minion.Key}");
 
-            ImGui.TextUnformatted(minion.IsOwn ? $"{minion.Name} (Mine)" : minion.Name);
-            DrawScaleControls(minion.Key, minion.Name, false);
+            DrawMinionLabel(minion.Name, minion.IsOwn, minion.IconId);
+            DrawScaleControls(minion.Key, minion.Name, minion.IconId, false);
 
             ImGui.PopID();
         }
@@ -51,14 +54,27 @@ public sealed class ConfigWindow : Window, IDisposable
         foreach (var setting in config.MinionScales.Values.OrderBy(x => x.Name).ToArray())
         {
             ImGui.PushID($"saved-{setting.Key}");
-            ImGui.TextUnformatted(setting.Name);
-            DrawScaleControls(setting.Key, setting.Name, true);
+            var iconId = setting.IconId != 0 ? setting.IconId : plugin.GetIconIdForKey(setting.Key);
+            DrawMinionLabel(setting.Name, false, iconId);
+            DrawScaleControls(setting.Key, setting.Name, iconId, true);
 
             ImGui.PopID();
         }
     }
 
-    private void DrawScaleControls(string key, string name, bool showDelete)
+    private void DrawMinionLabel(string name, bool isOwn, uint iconId)
+    {
+        if (plugin.TryGetIconTexture(iconId, out var icon))
+        {
+            ImGui.Image(icon.Handle, IconSize);
+            ImGui.SameLine();
+        }
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted(isOwn ? $"{name} (Mine)" : name);
+    }
+
+    private void DrawScaleControls(string key, string name, uint iconId, bool isSaved)
     {
         var scale = plugin.GetScaleForKey(key);
         ImGui.AlignTextToFramePadding();
@@ -67,14 +83,20 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.SetNextItemWidth(240);
         if (ImGui.SliderFloat("##scale-slider", ref scale, 0.1f, 10.0f, "%.2fx"))
         {
-            plugin.SetPreviewScale(key, scale);
+            if (isSaved)
+                plugin.UpdateSavedMinionScale(key, scale);
+            else
+                plugin.SetPreviewScale(key, scale);
         }
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(90);
         if (ImGui.InputFloat("##scale-input", ref scale, 0.01f, 0.10f, "%.2f"))
         {
-            plugin.SetPreviewScale(key, scale);
+            if (isSaved)
+                plugin.UpdateSavedMinionScale(key, scale);
+            else
+                plugin.SetPreviewScale(key, scale);
         }
 
         var applyToAll = plugin.GetApplyToAllForKey(key);
@@ -83,28 +105,40 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.RadioButton("Mine only", !applyToAll))
         {
-            plugin.SetPreviewApplyToAll(key, false);
+            if (isSaved)
+                plugin.UpdateSavedApplyToAll(key, false);
+            else
+                plugin.SetPreviewApplyToAll(key, false);
         }
 
         ImGui.SameLine();
         if (ImGui.RadioButton("Everyone", applyToAll))
         {
-            plugin.SetPreviewApplyToAll(key, true);
+            if (isSaved)
+                plugin.UpdateSavedApplyToAll(key, true);
+            else
+                plugin.SetPreviewApplyToAll(key, true);
         }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Save"))
+        if (!isSaved)
         {
-            plugin.SaveMinionScale(key, name);
+            ImGui.SameLine();
+            if (ImGui.Button("Save"))
+            {
+                plugin.SaveMinionScale(key, name, iconId);
+            }
         }
 
         ImGui.SameLine();
         if (ImGui.Button("Default"))
         {
-            plugin.ResetMinionScale(key);
+            if (isSaved)
+                plugin.ResetSavedMinionScale(key);
+            else
+                plugin.ResetMinionScale(key);
         }
 
-        if (showDelete)
+        if (isSaved)
         {
             ImGui.SameLine();
             if (ImGui.Button("Delete"))
