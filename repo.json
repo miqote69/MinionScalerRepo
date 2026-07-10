@@ -4,7 +4,7 @@
     "Name": "Minion Scaler",
     "Description": "Adjusts the local display scale of selected minions. Use /minionscalerconfig to configure.",
     "InternalName": "MinionScaler",
-    "AssemblyVersion": "0.0.0.16",
+    "AssemblyVersion": "0.0.0.17",
     "TestingAssemblyVersion": null,
     "RepoUrl": "https://github.com/miqote69/MinionScalerRepo",
     "ApplicableVersion": "any",
@@ -19,10 +19,10 @@
     "IsHide": false,
     "IsTestingExclusive": false,
     "IconUrl": "https://raw.githubusercontent.com/miqote69/MinionScalerRepo/main/Assets/icon.svg",
-    "DownloadLinkInstall": "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.16/MinionScaler.zip",
-    "DownloadLinkTesting": "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.16/MinionScaler.zip",
-    "DownloadLinkUpdate": "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.16/MinionScaler.zip",
+    "DownloadLinkInstall": "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.17/MinionScaler.zip",
+    "DownloadLinkTesting": "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.17/MinionScaler.zip",
+    "DownloadLinkUpdate": "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.17/MinionScaler.zip",
     "DownloadCount": 0,
-    "LastUpdate": 1783659519
+    "LastUpdate": 1783671133
   }
 ]
