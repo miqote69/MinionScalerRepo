@@ -8,6 +8,8 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Numerics;
 using SceneObject = FFXIVClientStructs.FFXIV.Client.Graphics.Scene.Object;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
@@ -27,15 +29,16 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService] private static IObjectTable ObjectTable { get; set; } = null!;
     [PluginService] private static ITargetManager TargetManager { get; set; } = null!;
     [PluginService] private static IFramework Framework { get; set; } = null!;
+    [PluginService] private static IClientState ClientState { get; set; } = null!;
     [PluginService] private static IDataManager DataManager { get; set; } = null!;
     [PluginService] private static ITextureProvider TextureProvider { get; set; } = null!;
     [PluginService] private static IPluginLog Log { get; set; } = null!;
 
-    private readonly Dictionary<ulong, float> originalScales = new();
-    private readonly Dictionary<ulong, DrawScale> originalDrawScales = new();
+    private readonly Dictionary<ulong, TrackedScale> trackedScales = new();
     private readonly Dictionary<string, float> previewScales = new();
     private readonly Dictionary<string, bool> previewApplyToAll = new();
     private readonly Dictionary<uint, uint> iconIdsByCompanionId = new();
+    private readonly List<ClientStateSubscription> clientStateSubscriptions = new();
     private readonly ConfigWindow configWindow;
     private readonly WindowSystem windowSystem = new("MinionScaler");
 
@@ -74,10 +77,15 @@ public sealed unsafe class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         Framework.Update += OnFrameworkUpdate;
+
+        SubscribeClientStateEvent("ZoneInit");
+        SubscribeClientStateEvent("TerritoryChanged");
+        SubscribeClientStateEvent("Logout");
     }
 
     public void Dispose()
     {
+        UnsubscribeClientStateEvents();
         Framework.Update -= OnFrameworkUpdate;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
@@ -142,6 +150,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
             seenThisFrame.Add(id);
 
             var gameObject = (GameObject*)obj.Address;
+            var drawObject = gameObject->DrawObject;
+            if (drawObject == null)
+            {
+                RestoreTrackedMinion(id, gameObject);
+                continue;
+            }
+
             if (!ShouldApplyScale(minion.Key, isOwn))
             {
                 RestoreTrackedMinion(id, gameObject);
@@ -155,14 +170,30 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 continue;
             }
 
-            if (!originalScales.TryGetValue(id, out var originalScale))
+            var gameObjectAddress = obj.Address;
+            var drawObjectAddress = (nint)drawObject;
+            var sceneObject = (SceneObject*)drawObject;
+
+            if (trackedScales.TryGetValue(id, out var trackedScale)
+                && (trackedScale.GameObjectAddress != gameObjectAddress || trackedScale.DrawObjectAddress != drawObjectAddress))
             {
-                originalScale = gameObject->Scale;
-                originalScales[id] = originalScale;
+                trackedScales.Remove(id);
             }
 
-            gameObject->Scale = originalScale * multiplier;
-            ApplyDrawObjectScale(id, gameObject, multiplier);
+            if (!trackedScales.TryGetValue(id, out trackedScale))
+            {
+                trackedScale = new TrackedScale(
+                    id,
+                    gameObjectAddress,
+                    drawObjectAddress,
+                    gameObject->Scale,
+                    DrawScale.From(sceneObject));
+                trackedScales[id] = trackedScale;
+            }
+
+            gameObject->Scale = trackedScale.GameScale * multiplier;
+            trackedScale.DrawScale.ApplyTo(sceneObject, multiplier);
+            drawObject->NotifyTransformChanged();
         }
 
         RestoreNoLongerMatchingMinions(seenThisFrame);
@@ -298,6 +329,17 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
     }
 
+    public void ResetAllSavedMinionScales()
+    {
+        foreach (var setting in Configuration.MinionScales.Values)
+        {
+            setting.Scale = 1.0f;
+            previewScales[setting.Key] = 1.0f;
+        }
+
+        Save();
+    }
+
     public void SaveMinionScale(MinionEntry minion)
     {
         SaveMinionScale(minion.Key, minion.Name, minion.IconId);
@@ -323,6 +365,23 @@ public sealed unsafe class Plugin : IDalamudPlugin
         previewApplyToAll.Remove(key);
         if (Configuration.MinionScales.Remove(key))
             Save();
+    }
+
+    public void DeleteAllMinionScales()
+    {
+        foreach (var key in Configuration.MinionScales.Keys.ToArray())
+        {
+            previewScales[key] = 1.0f;
+            previewApplyToAll.Remove(key);
+        }
+
+        Configuration.MinionScales.Clear();
+        Save();
+    }
+
+    public bool IsScaleModified(string key)
+    {
+        return Math.Abs(GetScaleForKey(key) - 1.0f) > 0.001f;
     }
 
     private bool ShouldApplyScale(string key, bool isOwn)
@@ -448,7 +507,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void RestoreNoLongerMatchingMinions(HashSet<ulong> stillMatching)
     {
-        foreach (var (id, originalScale) in originalScales.ToArray())
+        foreach (var (id, trackedScale) in trackedScales.ToArray())
         {
             if (stillMatching.Contains(id))
                 continue;
@@ -466,7 +525,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void RestoreTrackedMinions()
     {
-        foreach (var (id, originalScale) in originalScales.ToArray())
+        foreach (var (id, trackedScale) in trackedScales.ToArray())
         {
             var obj = ObjectTable.SearchById(id);
             if (obj != null && obj.Address != nint.Zero && obj.IsValid() && obj.ObjectKind == ObjectKind.Companion)
@@ -476,30 +535,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
             }
         }
 
-        originalScales.Clear();
-        originalDrawScales.Clear();
-    }
-
-    private void ApplyDrawObjectScale(ulong id, GameObject* gameObject, float multiplier)
-    {
-        var drawObject = gameObject->DrawObject;
-        if (drawObject == null)
-            return;
-
-        var sceneObject = (SceneObject*)drawObject;
-        if (!originalDrawScales.TryGetValue(id, out var originalScale))
-        {
-            originalScale = DrawScale.From(sceneObject);
-            originalDrawScales[id] = originalScale;
-        }
-
-        originalScale.ApplyTo(sceneObject, multiplier);
-        drawObject->NotifyTransformChanged();
+        trackedScales.Clear();
     }
 
     private void RestoreDrawObjectScale(ulong id, GameObject* gameObject)
     {
-        if (!originalDrawScales.TryGetValue(id, out var originalScale))
+        if (!trackedScales.TryGetValue(id, out var trackedScale))
             return;
 
         var drawObject = gameObject->DrawObject;
@@ -507,14 +548,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
             return;
 
         var sceneObject = (SceneObject*)drawObject;
-        originalScale.ApplyTo(sceneObject, 1.0f);
+        trackedScale.DrawScale.ApplyTo(sceneObject, 1.0f);
         drawObject->NotifyTransformChanged();
     }
 
     private void RestoreTrackedMinion(ulong id, GameObject* gameObject)
     {
-        if (originalScales.TryGetValue(id, out var originalScale))
-            gameObject->Scale = originalScale;
+        if (trackedScales.TryGetValue(id, out var trackedScale))
+            gameObject->Scale = trackedScale.GameScale;
 
         RestoreDrawObjectScale(id, gameObject);
         ClearTrackedMinion(id);
@@ -522,12 +563,73 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void ClearTrackedMinion(ulong id)
     {
-        originalScales.Remove(id);
-        originalDrawScales.Remove(id);
+        trackedScales.Remove(id);
+    }
+
+    private void ClearScaleCacheForWorldChange()
+    {
+        trackedScales.Clear();
+    }
+
+    private void SubscribeClientStateEvent(string eventName)
+    {
+        var eventInfo = typeof(IClientState).GetEvent(eventName, BindingFlags.Instance | BindingFlags.Public);
+        if (eventInfo?.EventHandlerType == null)
+            return;
+
+        try
+        {
+            var invoke = eventInfo.EventHandlerType.GetMethod("Invoke");
+            if (invoke == null || invoke.ReturnType != typeof(void))
+                return;
+
+            var method = typeof(Plugin).GetMethod(nameof(ClearScaleCacheForWorldChange), BindingFlags.Instance | BindingFlags.NonPublic);
+            if (method == null)
+                return;
+
+            var parameters = invoke.GetParameters()
+                .Select(parameter => Expression.Parameter(parameter.ParameterType, parameter.Name))
+                .ToArray();
+            var body = Expression.Call(Expression.Constant(this), method);
+            var handler = Expression.Lambda(eventInfo.EventHandlerType, body, parameters).Compile();
+
+            eventInfo.AddEventHandler(ClientState, handler);
+            clientStateSubscriptions.Add(new ClientStateSubscription(eventInfo, handler));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "Failed to subscribe to client state event {EventName}.", eventName);
+        }
+    }
+
+    private void UnsubscribeClientStateEvents()
+    {
+        foreach (var subscription in clientStateSubscriptions)
+        {
+            try
+            {
+                subscription.EventInfo.RemoveEventHandler(ClientState, subscription.Handler);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug(ex, "Failed to unsubscribe from client state event {EventName}.", subscription.EventInfo.Name);
+            }
+        }
+
+        clientStateSubscriptions.Clear();
     }
 }
 
 public sealed record MinionEntry(string Key, string Name, bool IsOwn, uint IconId);
+
+internal sealed record ClientStateSubscription(EventInfo EventInfo, Delegate Handler);
+
+internal readonly record struct TrackedScale(
+    ulong GameObjectId,
+    nint GameObjectAddress,
+    nint DrawObjectAddress,
+    float GameScale,
+    DrawScale DrawScale);
 
 internal readonly record struct DrawScale(float X, float Y, float Z)
 {

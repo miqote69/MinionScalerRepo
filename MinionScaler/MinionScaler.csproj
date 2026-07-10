@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.0.0.20</Version>
+    <Version>0.0.0.21</Version>
     <PackageProjectUrl>https://github.com/miqote69/MinionScalerRepo</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="$(IntermediateOutputPath)MinionScaler\icon.png" Link="images\icon.png">
+    <Content Include="..\Assets\icon.png" Link="images\icon.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
-  <Target Name="GeneratePluginIcon" BeforeTargets="AssignTargetPaths;CopyFilesToOutputDirectory">
-    <MakeDir Directories="$(IntermediateOutputPath)MinionScaler" />
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;[IO.File]::WriteAllBytes('$(IntermediateOutputPath)MinionScaler\icon.png', [Convert]::FromBase64String((Get-Content -Raw '$(MSBuildProjectDirectory)\..\Assets\icon.png.base64').Trim()))&quot;" />
-  </Target>
 </Project>
