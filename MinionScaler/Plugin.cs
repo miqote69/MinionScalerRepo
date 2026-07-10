@@ -26,6 +26,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private readonly Dictionary<ulong, float> originalScales = new();
     private readonly Dictionary<ulong, DrawScale> originalDrawScales = new();
     private readonly Dictionary<string, float> previewScales = new();
+    private readonly Dictionary<string, bool> previewApplyToAll = new();
     private readonly ConfigWindow configWindow;
     private readonly WindowSystem windowSystem = new("MinionScaler");
 
@@ -119,15 +120,19 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (obj.ObjectKind != ObjectKind.Companion || obj.Address == nint.Zero || !obj.IsValid())
                 continue;
 
-            if (Configuration.OwnMinionOnly && (localPlayer == null || obj.OwnerId != localEntityId))
-                continue;
-
-            var minion = CreateMinionEntry(obj);
+            var isOwn = IsOwnedByLocalPlayer(obj, localPlayer != null, localEntityId);
+            var minion = CreateMinionEntry(obj, isOwn);
             var id = obj.GameObjectId;
             seenThisFrame.Add(id);
 
-            var multiplier = GetScaleForMinion(minion);
             var gameObject = (GameObject*)obj.Address;
+            if (!ShouldApplyScale(minion.Key, isOwn))
+            {
+                RestoreTrackedMinion(id, gameObject);
+                continue;
+            }
+
+            var multiplier = GetScaleForKey(minion.Key);
             if (Math.Abs(multiplier - 1.0f) < 0.001f)
             {
                 RestoreTrackedMinion(id, gameObject);
@@ -151,46 +156,97 @@ public sealed unsafe class Plugin : IDalamudPlugin
     {
         var localPlayer = ObjectTable.LocalPlayer;
         var localEntityId = localPlayer?.EntityId ?? 0;
+        var hasLocalPlayer = localPlayer != null;
 
         return ObjectTable.CharacterManagerObjects
             .Where(obj => obj.ObjectKind == ObjectKind.Companion && obj.Address != nint.Zero && obj.IsValid())
-            .Where(obj => !Configuration.OwnMinionOnly || (localPlayer != null && obj.OwnerId == localEntityId))
-            .Select(CreateMinionEntry)
+            .Select(obj => CreateMinionEntry(obj, IsOwnedByLocalPlayer(obj, hasLocalPlayer, localEntityId)))
             .GroupBy(x => x.Key)
-            .Select(group => group.First())
-            .OrderBy(x => x.Name)
+            .Select(group =>
+            {
+                var ownEntry = group.FirstOrDefault(x => x.IsOwn);
+                var entry = ownEntry ?? group.First();
+                return entry with { IsOwn = ownEntry != null };
+            })
+            .OrderByDescending(x => x.IsOwn)
+            .ThenBy(x => x.Name)
             .ToArray();
     }
 
     public float GetScaleForMinion(MinionEntry minion)
     {
-        if (previewScales.TryGetValue(minion.Key, out var previewScale))
+        return GetScaleForKey(minion.Key);
+    }
+
+    public float GetScaleForKey(string key)
+    {
+        if (previewScales.TryGetValue(key, out var previewScale))
             return Math.Clamp(previewScale, 0.1f, 10.0f);
 
-        return Configuration.MinionScales.TryGetValue(minion.Key, out var setting)
+        return Configuration.MinionScales.TryGetValue(key, out var setting)
             ? Math.Clamp(setting.Scale, 0.1f, 10.0f)
             : 1.0f;
     }
 
     public void SetPreviewScale(MinionEntry minion, float scale)
     {
-        previewScales[minion.Key] = Math.Clamp(scale, 0.1f, 10.0f);
+        SetPreviewScale(minion.Key, scale);
+    }
+
+    public void SetPreviewScale(string key, float scale)
+    {
+        previewScales[key] = Math.Clamp(scale, 0.1f, 10.0f);
+    }
+
+    public bool GetApplyToAllForMinion(MinionEntry minion)
+    {
+        return GetApplyToAllForKey(minion.Key);
+    }
+
+    public bool GetApplyToAllForKey(string key)
+    {
+        if (previewApplyToAll.TryGetValue(key, out var applyToAll))
+            return applyToAll;
+
+        return Configuration.MinionScales.TryGetValue(key, out var setting) && setting.ApplyToAll;
+    }
+
+    public void SetPreviewApplyToAll(MinionEntry minion, bool applyToAll)
+    {
+        SetPreviewApplyToAll(minion.Key, applyToAll);
+    }
+
+    public void SetPreviewApplyToAll(string key, bool applyToAll)
+    {
+        previewApplyToAll[key] = applyToAll;
     }
 
     public void ResetMinionScale(MinionEntry minion)
     {
-        previewScales[minion.Key] = 1.0f;
-        Configuration.MinionScales.Remove(minion.Key);
+        ResetMinionScale(minion.Key);
+    }
+
+    public void ResetMinionScale(string key)
+    {
+        previewScales[key] = 1.0f;
+        previewApplyToAll.Remove(key);
+        Configuration.MinionScales.Remove(key);
         Save();
     }
 
     public void SaveMinionScale(MinionEntry minion)
     {
-        Configuration.MinionScales[minion.Key] = new MinionScaleSetting
+        SaveMinionScale(minion.Key, minion.Name);
+    }
+
+    public void SaveMinionScale(string key, string name)
+    {
+        Configuration.MinionScales[key] = new MinionScaleSetting
         {
-            Key = minion.Key,
-            Name = minion.Name,
-            Scale = GetScaleForMinion(minion),
+            Key = key,
+            Name = name,
+            Scale = GetScaleForKey(key),
+            ApplyToAll = GetApplyToAllForKey(key),
         };
 
         Save();
@@ -199,11 +255,25 @@ public sealed unsafe class Plugin : IDalamudPlugin
     public void DeleteMinionScale(string key)
     {
         previewScales[key] = 1.0f;
+        previewApplyToAll.Remove(key);
         if (Configuration.MinionScales.Remove(key))
             Save();
     }
 
-    private static MinionEntry CreateMinionEntry(Dalamud.Game.ClientState.Objects.Types.IGameObject obj)
+    private bool ShouldApplyScale(string key, bool isOwn)
+    {
+        if (!previewScales.ContainsKey(key) && !Configuration.MinionScales.ContainsKey(key))
+            return false;
+
+        return isOwn || GetApplyToAllForKey(key);
+    }
+
+    private static bool IsOwnedByLocalPlayer(Dalamud.Game.ClientState.Objects.Types.IGameObject obj, bool hasLocalPlayer, ulong localEntityId)
+    {
+        return hasLocalPlayer && obj.OwnerId == localEntityId;
+    }
+
+    private static MinionEntry CreateMinionEntry(Dalamud.Game.ClientState.Objects.Types.IGameObject obj, bool isOwn)
     {
         var name = obj.Name.ToString();
         if (string.IsNullOrWhiteSpace(name))
@@ -213,7 +283,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             ? $"data:{obj.BaseId}"
             : $"name:{name}";
 
-        return new MinionEntry(key, name);
+        return new MinionEntry(key, name, isOwn);
     }
 
     private void RestoreNoLongerMatchingMinions(HashSet<ulong> stillMatching)
@@ -297,7 +367,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     }
 }
 
-public sealed record MinionEntry(string Key, string Name);
+public sealed record MinionEntry(string Key, string Name, bool IsOwn);
 
 internal readonly record struct DrawScale(float X, float Y, float Z)
 {
