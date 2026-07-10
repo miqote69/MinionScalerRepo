@@ -1,4 +1,5 @@
 using Dalamud.Game.ClientState.Objects.Enums;
+using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Interface.Textures;
@@ -7,6 +8,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
+using System.Numerics;
 using SceneObject = FFXIVClientStructs.FFXIV.Client.Graphics.Scene.Object;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 
@@ -23,6 +25,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService] private static IDalamudPluginInterface PluginInterface { get; set; } = null!;
     [PluginService] private static ICommandManager CommandManager { get; set; } = null!;
     [PluginService] private static IObjectTable ObjectTable { get; set; } = null!;
+    [PluginService] private static ITargetManager TargetManager { get; set; } = null!;
     [PluginService] private static IFramework Framework { get; set; } = null!;
     [PluginService] private static IDataManager DataManager { get; set; } = null!;
     [PluginService] private static ITextureProvider TextureProvider { get; set; } = null!;
@@ -98,6 +101,11 @@ public sealed unsafe class Plugin : IDalamudPlugin
         configWindow.Toggle();
     }
 
+    public IDisposable PushIconFont()
+    {
+        return PluginInterface.UiBuilder.IconFontFixedWidthHandle.Push();
+    }
+
     private void OnCommand(string command, string args)
     {
         ToggleConfigUi();
@@ -168,7 +176,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
         var localGameObjectId = hasLocalPlayer ? GetObjectIdPart(localPlayer.GameObjectId) : 0;
 
         return ObjectTable.CharacterManagerObjects
-            .Where(obj => obj.ObjectKind == ObjectKind.Companion && obj.Address != nint.Zero && obj.IsValid())
+            .Where(IsTargetableCompanion)
             .Select(obj => CreateMinionEntry(obj, IsOwnedByLocalPlayer(obj, hasLocalPlayer, localEntityId, localGameObjectId)))
             .GroupBy(x => x.Key)
             .Select(group =>
@@ -180,6 +188,19 @@ public sealed unsafe class Plugin : IDalamudPlugin
             .OrderByDescending(x => x.IsOwn)
             .ThenBy(x => x.Name)
             .ToArray();
+    }
+
+    public void TargetClosestMinion(string key)
+    {
+        var localPlayer = ObjectTable.LocalPlayer;
+        var closest = ObjectTable.CharacterManagerObjects
+            .Where(IsTargetableCompanion)
+            .Where(obj => CreateMinionKey(obj) == key)
+            .OrderBy(obj => localPlayer == null ? 0.0f : Vector3.DistanceSquared(localPlayer.Position, obj.Position))
+            .FirstOrDefault();
+
+        if (closest != null)
+            TargetManager.Target = closest;
     }
 
     public float GetScaleForMinion(MinionEntry minion)
@@ -312,6 +333,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
         return isOwn || GetApplyToAllForKey(key);
     }
 
+    private static bool IsTargetableCompanion(IGameObject obj)
+    {
+        return obj.ObjectKind == ObjectKind.Companion
+            && obj.Address != nint.Zero
+            && obj.IsValid()
+            && obj.IsTargetable;
+    }
+
     public bool TryGetIconTexture(uint iconId, out IDalamudTextureWrap? texture)
     {
         texture = null;
@@ -365,11 +394,25 @@ public sealed unsafe class Plugin : IDalamudPlugin
         if (string.IsNullOrWhiteSpace(name))
             name = $"Minion {obj.BaseId}";
 
-        var key = obj.BaseId != 0
-            ? $"data:{obj.BaseId}"
-            : $"name:{name}";
+        var key = CreateMinionKey(obj, name);
 
         return new MinionEntry(key, name, isOwn, GetIconIdForCompanionId(obj.BaseId));
+    }
+
+    private static string CreateMinionKey(IGameObject obj)
+    {
+        var name = obj.Name.ToString();
+        if (string.IsNullOrWhiteSpace(name))
+            name = $"Minion {obj.BaseId}";
+
+        return CreateMinionKey(obj, name);
+    }
+
+    private static string CreateMinionKey(IGameObject obj, string name)
+    {
+        return obj.BaseId != 0
+            ? $"data:{obj.BaseId}"
+            : $"name:{name}";
     }
 
     private uint GetIconIdForCompanionId(uint companionId)
