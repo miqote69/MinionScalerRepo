@@ -28,46 +28,63 @@ public sealed class ConfigWindow : Window, IDisposable
     public override void Draw()
     {
         var config = plugin.Configuration;
+        var availableSize = ImGui.GetContentRegionAvail();
+        var itemSpacing = ImGui.GetStyle().ItemSpacing;
+        var columnWidth = Math.Max(250.0f, (availableSize.X - itemSpacing.X) * 0.5f);
+        var childHeight = Math.Max(180.0f, availableSize.Y - ImGui.GetTextLineHeightWithSpacing());
 
-        ImGui.Columns(2, "##minion-columns", true);
+        ImGui.BeginGroup();
 
         ImGui.TextUnformatted("Visible minions");
 
         var visibleMinions = plugin.GetVisibleMinions()
             .Where(minion => !config.MinionScales.ContainsKey(minion.Key))
             .ToArray();
-        if (visibleMinions.Length == 0)
-            ImGui.TextDisabled("No unpinned minions are currently visible.");
 
-        foreach (var minion in visibleMinions)
+        if (ImGui.BeginChild("##visible-minions-scroll", new Vector2(columnWidth, childHeight), false))
         {
-            ImGui.PushID($"visible-{minion.Key}");
+            if (visibleMinions.Length == 0)
+                ImGui.TextDisabled("No unpinned minions are currently visible.");
 
-            DrawMinionLabel(minion.Name, minion.IsOwn, minion.IconId);
-            DrawScaleControls(minion.Key, minion.Name, minion.IconId, false);
-            ImGui.Separator();
+            foreach (var minion in visibleMinions)
+            {
+                ImGui.PushID($"visible-{minion.Key}");
 
-            ImGui.PopID();
+                DrawMinionLabel(minion.Name, minion.IsOwn, minion.IconId);
+                DrawScaleControls(minion.Key, minion.Name, minion.IconId, false);
+                ImGui.Separator();
+
+                ImGui.PopID();
+            }
         }
 
-        ImGui.NextColumn();
+        ImGui.EndChild();
+        ImGui.EndGroup();
+
+        ImGui.SameLine();
+        ImGui.BeginGroup();
+
         ImGui.TextUnformatted("Pinned minions");
 
-        if (config.MinionScales.Count == 0)
-            ImGui.TextDisabled("Pinned minions will appear here.");
-
-        foreach (var setting in config.MinionScales.Values.OrderBy(x => x.Name).ToArray())
+        if (ImGui.BeginChild("##pinned-minions-scroll", new Vector2(columnWidth, childHeight), false))
         {
-            ImGui.PushID($"pinned-{setting.Key}");
-            var iconId = setting.IconId != 0 ? setting.IconId : plugin.GetIconIdForKey(setting.Key);
-            DrawMinionLabel(setting.Name, false, iconId);
-            DrawScaleControls(setting.Key, setting.Name, iconId, true);
-            ImGui.Separator();
+            if (config.MinionScales.Count == 0)
+                ImGui.TextDisabled("Pinned minions will appear here.");
 
-            ImGui.PopID();
+            foreach (var setting in config.MinionScales.Values.OrderBy(x => x.Name).ToArray())
+            {
+                ImGui.PushID($"pinned-{setting.Key}");
+                var iconId = setting.IconId != 0 ? setting.IconId : plugin.GetIconIdForKey(setting.Key);
+                DrawMinionLabel(setting.Name, false, iconId);
+                DrawScaleControls(setting.Key, setting.Name, iconId, true);
+                ImGui.Separator();
+
+                ImGui.PopID();
+            }
         }
 
-        ImGui.Columns(1);
+        ImGui.EndChild();
+        ImGui.EndGroup();
     }
 
     private void DrawMinionLabel(string name, bool isOwn, uint iconId)
@@ -86,7 +103,10 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         var scale = plugin.GetScaleForKey(key);
         var availableWidth = ImGui.GetContentRegionAvail().X;
-        var sliderWidth = Math.Max(120.0f, availableWidth - 100.0f);
+        var itemSpacing = ImGui.GetStyle().ItemSpacing.X;
+        var labelWidth = ImGui.CalcTextSize("Scale").X;
+        var inputWidth = 58.0f;
+        var sliderWidth = Math.Max(80.0f, availableWidth - labelWidth - inputWidth - (itemSpacing * 3.0f));
 
         ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted("Scale");
@@ -101,8 +121,8 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(90);
-        if (ImGui.InputFloat("##scale-input", ref scale, 0.01f, 0.10f, "%.2f"))
+        ImGui.SetNextItemWidth(inputWidth);
+        if (ImGui.InputFloat("##scale-input", ref scale, 0.0f, 0.0f, "%.2f"))
         {
             if (isSaved)
                 plugin.UpdateSavedMinionScale(key, scale);
@@ -138,7 +158,11 @@ public sealed class ConfigWindow : Window, IDisposable
             }
         }
 
-        ImGui.SameLine();
+        if (ImGui.GetContentRegionAvail().X < 150.0f)
+            ImGui.NewLine();
+        else
+            ImGui.SameLine();
+
         if (ImGui.Button("Default"))
         {
             if (isSaved)
