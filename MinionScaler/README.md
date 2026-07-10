@@ -7,7 +7,7 @@ Dalamud plugin prototype that changes visible minion size locally.
 - Command: `/minionscaler`
 - Alias: `/minionscale`
 - Settings command: `/minionscalerconfig`
-- Default behavior: only scales your own summoned minion.
+- Saved minion settings can apply to only your minion or to everyone using that minion.
 - Use the `Default` button or remove a saved setting to restore tracked minions to their original scale.
 
 ## Notes
