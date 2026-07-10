@@ -10,6 +10,8 @@ namespace MinionScaler;
 
 public sealed unsafe class Plugin : IDalamudPlugin
 {
+    public const string DisplayName = "Minion Scaler";
+
     private const string CommandName = "/minionscaler";
     private const string CommandAlias = "/minionscale";
     private const string ConfigCommandName = "/minionscalerconfig";
@@ -21,10 +23,21 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService] private static IPluginLog Log { get; set; } = null!;
 
     private readonly Dictionary<ulong, float> originalScales = new();
+    private readonly Dictionary<string, float> previewScales = new();
     private readonly ConfigWindow configWindow;
     private readonly WindowSystem windowSystem = new("MinionScaler");
 
     public Configuration Configuration { get; }
+
+    public static string DisplayVersion =>
+        typeof(Plugin).Assembly
+            .GetCustomAttributes(false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()
+            ?.InformationalVersion
+            .Split('+')[0]
+        ?? typeof(Plugin).Assembly.GetName().Version?.ToString(3)
+        ?? "0.0.0";
 
     public Plugin()
     {
@@ -108,12 +121,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 continue;
 
             var minion = CreateMinionEntry(obj);
-            if (!Configuration.MinionScales.TryGetValue(minion.Key, out var setting))
+            var multiplier = GetScaleForMinion(minion);
+            if (Math.Abs(multiplier - 1.0f) < 0.001f)
                 continue;
 
             var id = obj.GameObjectId;
             var gameObject = (GameObject*)obj.Address;
-            var multiplier = Math.Clamp(setting.Scale, 0.1f, 10.0f);
 
             if (!originalScales.TryGetValue(id, out var originalScale))
             {
@@ -141,6 +154,33 @@ public sealed unsafe class Plugin : IDalamudPlugin
             .Select(group => group.First())
             .OrderBy(x => x.Name)
             .ToArray();
+    }
+
+    public float GetScaleForMinion(MinionEntry minion)
+    {
+        if (previewScales.TryGetValue(minion.Key, out var previewScale))
+            return Math.Clamp(previewScale, 0.1f, 10.0f);
+
+        return Configuration.MinionScales.TryGetValue(minion.Key, out var setting)
+            ? Math.Clamp(setting.Scale, 0.1f, 10.0f)
+            : 1.0f;
+    }
+
+    public void SetPreviewScale(MinionEntry minion, float scale)
+    {
+        previewScales[minion.Key] = Math.Clamp(scale, 0.1f, 10.0f);
+    }
+
+    public void SaveMinionScale(MinionEntry minion)
+    {
+        Configuration.MinionScales[minion.Key] = new MinionScaleSetting
+        {
+            Key = minion.Key,
+            Name = minion.Name,
+            Scale = GetScaleForMinion(minion),
+        };
+
+        Save();
     }
 
     private static MinionEntry CreateMinionEntry(Dalamud.Game.ClientState.Objects.Types.IGameObject obj)
