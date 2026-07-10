@@ -85,12 +85,6 @@ public sealed unsafe class Plugin : IDalamudPlugin
     {
         try
         {
-            if (!Configuration.Enabled)
-            {
-                RestoreTrackedMinions();
-                return;
-            }
-
             ApplyScaleToVisibleMinions();
         }
         catch (Exception ex)
@@ -104,7 +98,6 @@ public sealed unsafe class Plugin : IDalamudPlugin
         var localPlayer = ObjectTable.LocalPlayer;
         var localEntityId = localPlayer?.EntityId ?? 0;
         var seenThisFrame = new HashSet<ulong>();
-        var multiplier = Math.Clamp(Configuration.ScaleMultiplier, 0.1f, 10.0f);
 
         foreach (var obj in ObjectTable.CharacterManagerObjects)
         {
@@ -114,8 +107,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (Configuration.OwnMinionOnly && (localPlayer == null || obj.OwnerId != localEntityId))
                 continue;
 
+            var minion = CreateMinionEntry(obj);
+            if (!Configuration.MinionScales.TryGetValue(minion.Key, out var setting))
+                continue;
+
             var id = obj.GameObjectId;
             var gameObject = (GameObject*)obj.Address;
+            var multiplier = Math.Clamp(setting.Scale, 0.1f, 10.0f);
 
             if (!originalScales.TryGetValue(id, out var originalScale))
             {
@@ -128,6 +126,34 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
 
         RestoreNoLongerMatchingMinions(seenThisFrame);
+    }
+
+    public IReadOnlyList<MinionEntry> GetVisibleMinions()
+    {
+        var localPlayer = ObjectTable.LocalPlayer;
+        var localEntityId = localPlayer?.EntityId ?? 0;
+
+        return ObjectTable.CharacterManagerObjects
+            .Where(obj => obj.ObjectKind == ObjectKind.Companion && obj.Address != nint.Zero && obj.IsValid())
+            .Where(obj => !Configuration.OwnMinionOnly || (localPlayer != null && obj.OwnerId == localEntityId))
+            .Select(CreateMinionEntry)
+            .GroupBy(x => x.Key)
+            .Select(group => group.First())
+            .OrderBy(x => x.Name)
+            .ToArray();
+    }
+
+    private static MinionEntry CreateMinionEntry(Dalamud.Game.ClientState.Objects.Types.IGameObject obj)
+    {
+        var name = obj.Name.ToString();
+        if (string.IsNullOrWhiteSpace(name))
+            name = $"Minion {obj.DataId}";
+
+        var key = obj.DataId != 0
+            ? $"data:{obj.DataId}"
+            : $"name:{name}";
+
+        return new MinionEntry(key, name);
     }
 
     private void RestoreNoLongerMatchingMinions(HashSet<ulong> stillMatching)
@@ -163,3 +189,5 @@ public sealed unsafe class Plugin : IDalamudPlugin
         originalScales.Clear();
     }
 }
+
+public sealed record MinionEntry(string Key, string Name);
