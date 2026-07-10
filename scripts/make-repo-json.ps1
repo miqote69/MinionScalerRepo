@@ -30,8 +30,15 @@ $entry = [ordered]@{
     ApplicableVersion = "any"
     DalamudApiLevel = 15
     Punchline = "Changes visible minion size locally."
+    Tags = @(
+        "minion",
+        "companion",
+        "cosmetic"
+    )
+    MinimumDalamudVersion = "15.0.0.0"
     IsHide = $false
     IsTestingExclusive = $false
+    IconUrl = "https://raw.githubusercontent.com/$Owner/$Repository/main/Assets/icon.svg"
     DownloadLinkInstall = $downloadUrl
     DownloadLinkTesting = $downloadUrl
     DownloadLinkUpdate = $downloadUrl
