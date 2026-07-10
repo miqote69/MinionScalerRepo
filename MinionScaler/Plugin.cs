@@ -4,6 +4,7 @@ using Dalamud.IoC;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using SceneObject = FFXIVClientStructs.FFXIV.Client.Graphics.Scene.Object;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 
 namespace MinionScaler;
@@ -23,6 +24,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService] private static IPluginLog Log { get; set; } = null!;
 
     private readonly Dictionary<ulong, float> originalScales = new();
+    private readonly Dictionary<ulong, DrawScale> originalDrawScales = new();
     private readonly Dictionary<string, float> previewScales = new();
     private readonly ConfigWindow configWindow;
     private readonly WindowSystem windowSystem = new("MinionScaler");
@@ -121,12 +123,16 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 continue;
 
             var minion = CreateMinionEntry(obj);
-            var multiplier = GetScaleForMinion(minion);
-            if (Math.Abs(multiplier - 1.0f) < 0.001f)
-                continue;
-
             var id = obj.GameObjectId;
+            seenThisFrame.Add(id);
+
+            var multiplier = GetScaleForMinion(minion);
             var gameObject = (GameObject*)obj.Address;
+            if (Math.Abs(multiplier - 1.0f) < 0.001f)
+            {
+                RestoreTrackedMinion(id, gameObject);
+                continue;
+            }
 
             if (!originalScales.TryGetValue(id, out var originalScale))
             {
@@ -135,7 +141,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             }
 
             gameObject->Scale = originalScale * multiplier;
-            seenThisFrame.Add(id);
+            ApplyDrawObjectScale(id, gameObject, multiplier);
         }
 
         RestoreNoLongerMatchingMinions(seenThisFrame);
@@ -171,6 +177,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
         previewScales[minion.Key] = Math.Clamp(scale, 0.1f, 10.0f);
     }
 
+    public void ResetMinionScale(MinionEntry minion)
+    {
+        previewScales[minion.Key] = 1.0f;
+        Configuration.MinionScales.Remove(minion.Key);
+        Save();
+    }
+
     public void SaveMinionScale(MinionEntry minion)
     {
         Configuration.MinionScales[minion.Key] = new MinionScaleSetting
@@ -181,6 +194,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
         };
 
         Save();
+    }
+
+    public void DeleteMinionScale(string key)
+    {
+        previewScales[key] = 1.0f;
+        if (Configuration.MinionScales.Remove(key))
+            Save();
     }
 
     private static MinionEntry CreateMinionEntry(Dalamud.Game.ClientState.Objects.Types.IGameObject obj)
@@ -207,10 +227,10 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (obj != null && obj.Address != nint.Zero && obj.IsValid() && obj.ObjectKind == ObjectKind.Companion)
             {
                 var gameObject = (GameObject*)obj.Address;
-                gameObject->Scale = originalScale;
+                RestoreTrackedMinion(id, gameObject);
             }
 
-            originalScales.Remove(id);
+            ClearTrackedMinion(id);
         }
     }
 
@@ -222,12 +242,74 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (obj != null && obj.Address != nint.Zero && obj.IsValid() && obj.ObjectKind == ObjectKind.Companion)
             {
                 var gameObject = (GameObject*)obj.Address;
-                gameObject->Scale = originalScale;
+                RestoreTrackedMinion(id, gameObject);
             }
         }
 
         originalScales.Clear();
+        originalDrawScales.Clear();
+    }
+
+    private void ApplyDrawObjectScale(ulong id, GameObject* gameObject, float multiplier)
+    {
+        var drawObject = gameObject->DrawObject;
+        if (drawObject == null)
+            return;
+
+        var sceneObject = (SceneObject*)drawObject;
+        if (!originalDrawScales.TryGetValue(id, out var originalScale))
+        {
+            originalScale = DrawScale.From(sceneObject);
+            originalDrawScales[id] = originalScale;
+        }
+
+        originalScale.ApplyTo(sceneObject, multiplier);
+        drawObject->NotifyTransformChanged();
+    }
+
+    private void RestoreDrawObjectScale(ulong id, GameObject* gameObject)
+    {
+        if (!originalDrawScales.TryGetValue(id, out var originalScale))
+            return;
+
+        var drawObject = gameObject->DrawObject;
+        if (drawObject == null)
+            return;
+
+        var sceneObject = (SceneObject*)drawObject;
+        originalScale.ApplyTo(sceneObject, 1.0f);
+        drawObject->NotifyTransformChanged();
+    }
+
+    private void RestoreTrackedMinion(ulong id, GameObject* gameObject)
+    {
+        if (originalScales.TryGetValue(id, out var originalScale))
+            gameObject->Scale = originalScale;
+
+        RestoreDrawObjectScale(id, gameObject);
+        ClearTrackedMinion(id);
+    }
+
+    private void ClearTrackedMinion(ulong id)
+    {
+        originalScales.Remove(id);
+        originalDrawScales.Remove(id);
     }
 }
 
 public sealed record MinionEntry(string Key, string Name);
+
+internal readonly record struct DrawScale(float X, float Y, float Z)
+{
+    public static unsafe DrawScale From(SceneObject* sceneObject)
+    {
+        return new DrawScale(sceneObject->Scale.X, sceneObject->Scale.Y, sceneObject->Scale.Z);
+    }
+
+    public unsafe void ApplyTo(SceneObject* sceneObject, float multiplier)
+    {
+        sceneObject->Scale.X = X * multiplier;
+        sceneObject->Scale.Y = Y * multiplier;
+        sceneObject->Scale.Z = Z * multiplier;
+    }
+}
