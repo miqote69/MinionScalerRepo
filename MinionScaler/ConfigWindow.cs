@@ -36,7 +36,7 @@ public sealed class ConfigWindow : Window, IDisposable
         var filterWidth = Math.Min(360.0f, availableSize.X);
 
         ImGui.SetNextItemWidth(filterWidth);
-        ImGui.InputText("Filter", ref nameFilter, 128);
+        ImGui.InputTextWithHint("##minion-filter", "Filter", ref nameFilter, 128);
 
         var childHeight = Math.Max(180.0f, ImGui.GetContentRegionAvail().Y - ImGui.GetTextLineHeightWithSpacing());
 
@@ -179,15 +179,6 @@ public sealed class ConfigWindow : Window, IDisposable
                 plugin.SetPreviewApplyToAll(key, false);
         }
 
-        if (!isSaved)
-        {
-            ImGui.SameLine();
-            if (ImGui.Button("Pin"))
-            {
-                plugin.SaveMinionScale(key, name, iconId);
-            }
-        }
-
         if (ImGui.GetContentRegionAvail().X < 150.0f)
             ImGui.NewLine();
         else
@@ -219,6 +210,23 @@ public sealed class ConfigWindow : Window, IDisposable
 
                 ImGui.PopStyleColor(3);
             }
+        }
+        else
+        {
+            const string pinText = "\uf08d";
+            ImGui.NewLine();
+            using (plugin.PushIconFont())
+            {
+                AlignNextItemToRight(ImGui.CalcTextSize(pinText).X + ImGui.GetStyle().FramePadding.X * 2.0f);
+
+                if (ImGui.Button(pinText))
+                {
+                    plugin.SaveMinionScale(key, name, iconId);
+                }
+            }
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Pin this minion");
         }
     }
 
