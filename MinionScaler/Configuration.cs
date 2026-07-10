@@ -7,8 +7,6 @@ public sealed class Configuration : IPluginConfiguration
 {
     public int Version { get; set; } = 1;
 
-    public bool OwnMinionOnly { get; set; } = true;
-
     public Dictionary<string, MinionScaleSetting> MinionScales { get; set; } = new();
 }
 
@@ -20,4 +18,6 @@ public sealed class MinionScaleSetting
     public string Name { get; set; } = "Unknown minion";
 
     public float Scale { get; set; } = 1.5f;
+
+    public bool ApplyToAll { get; set; }
 }
