@@ -47,9 +47,7 @@ A pinned minion does not need to be currently visible for its setting to remain 
 
 Minions can be resized from:
 
-
 - 0.10x to 10.00x
-
 
 Scale can be adjusted with:
 
@@ -83,6 +81,13 @@ The filter field searches both:
 - Pinned minions.
 
 Filtering is case-insensitive and uses the displayed minion name.
+
+### Localization
+
+- UI language can be selected from `Settings`: Automatic, English, Japanese, German, or French.
+- `Automatic` follows the current FFXIV client language.
+- Minion names always follow the FFXIV client language and are resolved from game data when available.
+- Filtering and sorting use the localized minion names currently shown on screen, independent of the selected UI language.
 
 ### Target a minion
 
@@ -163,6 +168,8 @@ Minion Scaler currently provides:
 
 - Detection of visible and targetable minions.
 - Identification of the local player's minion.
+- Client-language minion name resolution from game data.
+- Selectable UI language independent of minion name language.
 - Minion name and icon display.
 - Visible and Pinned tabs.
 - Minion name filtering.

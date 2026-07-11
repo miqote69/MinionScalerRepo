@@ -1,6 +1,7 @@
 using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
+using MinionScaler.Localization;
 using System.Numerics;
 
 namespace MinionScaler;
@@ -46,26 +47,25 @@ public sealed class ConfigWindow : Window, IDisposable
         var filterWidth = Math.Min(360.0f, availableSize.X);
 
         ImGui.SetNextItemWidth(filterWidth);
-        ImGui.InputTextWithHint("##minion-filter", "Filter", ref nameFilter, 128);
+        ImGui.InputTextWithHint("##minion-filter", plugin.Localizer.Get(UiTextKey.Filter), ref nameFilter, 128);
 
         var visibleMinions = plugin.GetVisibleMinions()
             .Where(minion => !config.MinionScales.ContainsKey(minion.Key))
             .Where(MatchesFilter)
             .ToArray();
-        var pinnedMinions = config.MinionScales.Values
+        var pinnedMinions = plugin.GetPinnedMinions()
             .Where(MatchesFilter)
-            .OrderBy(x => x.Name)
             .ToArray();
 
         if (ImGui.BeginTabBar("##minion-tabs"))
         {
-            if (ImGui.BeginTabItem($"Visible ({visibleMinions.Length})###visible-minions-tab"))
+            if (ImGui.BeginTabItem($"{plugin.Localizer.Get(UiTextKey.Visible)} ({visibleMinions.Length})###visible-minions-tab"))
             {
                 DrawVisibleMinions(visibleMinions);
                 ImGui.EndTabItem();
             }
 
-            if (ImGui.BeginTabItem($"Pinned ({pinnedMinions.Length})###pinned-minions-tab"))
+            if (ImGui.BeginTabItem($"{plugin.Localizer.Get(UiTextKey.Pinned)} ({pinnedMinions.Length})###pinned-minions-tab"))
             {
                 DrawPinnedMinions(pinnedMinions);
                 ImGui.EndTabItem();
@@ -80,10 +80,10 @@ public sealed class ConfigWindow : Window, IDisposable
         if (!ImGui.BeginMenuBar())
             return;
 
-        if (ImGui.MenuItem("Minions", string.Empty, currentView == ViewMode.Minions))
+        if (ImGui.MenuItem($"{plugin.Localizer.Get(UiTextKey.Minions)}###menu-minions", string.Empty, currentView == ViewMode.Minions))
             currentView = ViewMode.Minions;
 
-        if (ImGui.MenuItem("Settings", string.Empty, currentView == ViewMode.Settings))
+        if (ImGui.MenuItem($"{plugin.Localizer.Get(UiTextKey.Settings)}###menu-settings", string.Empty, currentView == ViewMode.Settings))
             currentView = ViewMode.Settings;
 
         ImGui.EndMenuBar();
@@ -94,7 +94,7 @@ public sealed class ConfigWindow : Window, IDisposable
         if (ImGui.BeginChild("##visible-minions-scroll", Vector2.Zero, false))
         {
             if (minions.Count == 0)
-                ImGui.TextDisabled("No unpinned minions are currently visible.");
+                ImGui.TextDisabled(plugin.Localizer.Get(UiTextKey.NoVisibleMinions));
 
             foreach (var minion in minions)
             {
@@ -108,18 +108,17 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.EndChild();
     }
 
-    private void DrawPinnedMinions(IReadOnlyList<MinionScaleSetting> settings)
+    private void DrawPinnedMinions(IReadOnlyList<MinionEntry> settings)
     {
         if (ImGui.BeginChild("##pinned-minions-scroll", Vector2.Zero, false))
         {
             if (settings.Count == 0)
-                ImGui.TextDisabled("Pinned minions will appear here.");
+                ImGui.TextDisabled(plugin.Localizer.Get(UiTextKey.NoPinnedMinions));
 
-            foreach (var setting in settings)
+            foreach (var minion in settings)
             {
-                ImGui.PushID($"pinned-{setting.Key}");
-                var iconId = setting.IconId != 0 ? setting.IconId : plugin.GetIconIdForKey(setting.Key);
-                DrawMinionRow(setting.Key, setting.Name, false, iconId, true);
+                ImGui.PushID($"pinned-{minion.Key}");
+                DrawMinionRow(minion.Key, minion.Name, false, minion.IconId, true);
                 ImGui.Separator();
                 ImGui.PopID();
             }
@@ -130,17 +129,21 @@ public sealed class ConfigWindow : Window, IDisposable
 
     private void DrawSettings()
     {
+        DrawUiLanguageSelector();
+        ImGui.TextDisabled(plugin.Localizer.Get(UiTextKey.GameDataLanguage, plugin.ClientLanguage));
+        ImGui.Separator();
+
         var hasPinned = plugin.Configuration.MinionScales.Count > 0;
 
         if (!hasPinned)
             ImGui.BeginDisabled();
 
-        if (ImGui.Button("Reset all pinned"))
+        if (ImGui.Button($"{plugin.Localizer.Get(UiTextKey.ResetAllPinned)}###reset-all-pinned"))
             plugin.ResetAllSavedMinionScales();
 
         ImGui.SameLine();
         PushDangerButtonColors();
-        if (ImGui.Button("Delete all pinned"))
+        if (ImGui.Button($"{plugin.Localizer.Get(UiTextKey.DeleteAllPinned)}###delete-all-pinned"))
             plugin.DeleteAllMinionScales();
         ImGui.PopStyleColor(3);
 
@@ -148,20 +151,30 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.EndDisabled();
     }
 
+    private void DrawUiLanguageSelector()
+    {
+        var current = plugin.Configuration.UiLanguage;
+        ImGui.SetNextItemWidth(220.0f);
+        if (!ImGui.BeginCombo($"{plugin.Localizer.Get(UiTextKey.UiLanguage)}###ui-language-combo", plugin.Localizer.GetLanguageName(current)))
+            return;
+
+        foreach (var language in Enum.GetValues<UiLanguage>())
+        {
+            if (ImGui.Selectable($"{plugin.Localizer.GetLanguageName(language)}###ui-language-{language}", current == language))
+                plugin.SetUiLanguage(language);
+        }
+
+        ImGui.EndCombo();
+    }
+
     private bool MatchesFilter(MinionEntry minion)
     {
         return MatchesFilter(minion.Name);
     }
 
-    private bool MatchesFilter(MinionScaleSetting setting)
-    {
-        return MatchesFilter(setting.Name);
-    }
-
     private bool MatchesFilter(string name)
     {
-        return string.IsNullOrWhiteSpace(nameFilter)
-            || name.Contains(nameFilter, StringComparison.CurrentCultureIgnoreCase);
+        return plugin.MinionNameContains(name, nameFilter);
     }
 
     private void DrawMinionRow(string key, string name, bool isOwn, uint iconId, bool isSaved)
@@ -174,9 +187,9 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         if (plugin.TryGetIconTexture(iconId, out var icon))
         {
-            ImGui.Image(icon.Handle, IconSize);
+            ImGui.Image(icon!.Handle, IconSize);
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Target this minion");
+                ImGui.SetTooltip(plugin.Localizer.Get(UiTextKey.TargetThisMinion));
 
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
                 plugin.TargetClosestMinion(key);
@@ -185,7 +198,7 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted(isOwn ? $"{name} (Mine)" : name);
+        ImGui.TextUnformatted(isOwn ? $"{name} ({plugin.Localizer.Get(UiTextKey.Mine)})" : name);
 
         ImGui.SameLine();
         if (isSaved)
@@ -201,7 +214,8 @@ public sealed class ConfigWindow : Window, IDisposable
         var availableWidth = ImGui.GetContentRegionAvail().X;
         var imguiStyle = ImGui.GetStyle();
         var itemSpacing = imguiStyle.ItemSpacing.X;
-        var labelWidth = ImGui.CalcTextSize("Scale").X;
+        var scaleText = plugin.Localizer.Get(UiTextKey.Scale);
+        var labelWidth = ImGui.CalcTextSize(scaleText).X;
         var inputWidth = 58.0f;
         var defaultButtonWidth = ImGui.CalcTextSize("\u21ba").X + (imguiStyle.FramePadding.X * 2.0f);
         var scrollbarPadding = imguiStyle.ScrollbarSize + itemSpacing;
@@ -210,7 +224,7 @@ public sealed class ConfigWindow : Window, IDisposable
         using var style = modified ? new ScaleHighlightScope() : null;
 
         ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted("Scale");
+        ImGui.TextUnformatted(scaleText);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(sliderWidth);
         if (ImGui.SliderFloat("##scale-slider", ref scale, 0.1f, 10.0f, "%.2fx"))
@@ -236,7 +250,7 @@ public sealed class ConfigWindow : Window, IDisposable
 
         var applyToAll = plugin.GetApplyToAllForKey(key);
         ImGui.AlignTextToFramePadding();
-        if (ImGui.RadioButton("Everyone", applyToAll))
+        if (ImGui.RadioButton($"{plugin.Localizer.Get(UiTextKey.Everyone)}###apply-everyone", applyToAll))
         {
             if (isSaved)
                 plugin.UpdateSavedApplyToAll(key, true);
@@ -245,7 +259,7 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         ImGui.SameLine();
-        if (ImGui.RadioButton("Mine only", !applyToAll))
+        if (ImGui.RadioButton($"{plugin.Localizer.Get(UiTextKey.MineOnly)}###apply-mine-only", !applyToAll))
         {
             if (isSaved)
                 plugin.UpdateSavedApplyToAll(key, false);
@@ -265,7 +279,7 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Default");
+            ImGui.SetTooltip(plugin.Localizer.Get(UiTextKey.Default));
     }
 
     private void DrawPinButton(string key, string name, uint iconId)
@@ -278,7 +292,7 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Pin this minion");
+            ImGui.SetTooltip(plugin.Localizer.Get(UiTextKey.PinThisMinion));
     }
 
     private void DrawDeleteButton(string key)
@@ -293,7 +307,7 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Delete");
+            ImGui.SetTooltip(plugin.Localizer.Get(UiTextKey.Delete));
     }
 
     private static void PushDangerButtonColors()

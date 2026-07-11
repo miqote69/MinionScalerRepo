@@ -1,3 +1,4 @@
+using Dalamud.Game;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.Command;
@@ -8,6 +9,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
+using MinionScaler.Localization;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Numerics;
@@ -38,11 +40,16 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private readonly Dictionary<string, float> previewScales = new();
     private readonly Dictionary<string, bool> previewApplyToAll = new();
     private readonly Dictionary<uint, uint> iconIdsByCompanionId = new();
+    private readonly Dictionary<(ClientLanguage Language, uint CompanionId), string> namesByLanguageAndCompanionId = new();
     private readonly List<ClientStateSubscription> clientStateSubscriptions = new();
     private readonly ConfigWindow configWindow;
     private readonly WindowSystem windowSystem = new("MinionScaler");
 
     public Configuration Configuration { get; }
+
+    public Localizer Localizer { get; }
+
+    public ClientLanguage ClientLanguage => ClientState.ClientLanguage;
 
     public static string DisplayVersion =>
         typeof(Plugin).Assembly
@@ -57,6 +64,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Localizer = new Localizer(Configuration, ClientState);
 
         configWindow = new ConfigWindow(this);
         windowSystem.AddWindow(configWindow);
@@ -104,6 +112,15 @@ public sealed unsafe class Plugin : IDalamudPlugin
         PluginInterface.SavePluginConfig(Configuration);
     }
 
+    public void SetUiLanguage(UiLanguage language)
+    {
+        if (Configuration.UiLanguage == language)
+            return;
+
+        Configuration.UiLanguage = language;
+        Save();
+    }
+
     public void ToggleConfigUi()
     {
         configWindow.Toggle();
@@ -135,8 +152,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
     {
         var localPlayer = ObjectTable.LocalPlayer;
         var hasLocalPlayer = localPlayer != null;
-        var localEntityId = hasLocalPlayer ? GetObjectIdPart(localPlayer.EntityId) : 0;
-        var localGameObjectId = hasLocalPlayer ? GetObjectIdPart(localPlayer.GameObjectId) : 0;
+        var localEntityId = hasLocalPlayer ? GetObjectIdPart(localPlayer!.EntityId) : 0;
+        var localGameObjectId = hasLocalPlayer ? GetObjectIdPart(localPlayer!.GameObjectId) : 0;
         var seenThisFrame = new HashSet<ulong>();
 
         foreach (var obj in ObjectTable.CharacterManagerObjects)
@@ -203,8 +220,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
     {
         var localPlayer = ObjectTable.LocalPlayer;
         var hasLocalPlayer = localPlayer != null;
-        var localEntityId = hasLocalPlayer ? GetObjectIdPart(localPlayer.EntityId) : 0;
-        var localGameObjectId = hasLocalPlayer ? GetObjectIdPart(localPlayer.GameObjectId) : 0;
+        var localEntityId = hasLocalPlayer ? GetObjectIdPart(localPlayer!.EntityId) : 0;
+        var localGameObjectId = hasLocalPlayer ? GetObjectIdPart(localPlayer!.GameObjectId) : 0;
 
         return ObjectTable.CharacterManagerObjects
             .Where(IsTargetableCompanion)
@@ -217,8 +234,28 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 return entry with { IsOwn = ownEntry != null };
             })
             .OrderByDescending(x => x.IsOwn)
-            .ThenBy(x => x.Name)
+            .ThenBy(x => x.Name, GameTextComparison.GetComparer(ClientState.ClientLanguage))
             .ToArray();
+    }
+
+    public IReadOnlyList<MinionEntry> GetPinnedMinions()
+    {
+        return Configuration.MinionScales.Values
+            .Select(setting =>
+            {
+                var companionId = TryGetCompanionId(setting.Key, out var parsedCompanionId) ? parsedCompanionId : 0;
+                var iconId = setting.IconId != 0 ? setting.IconId : GetIconIdForKey(setting.Key);
+                var name = ResolveMinionName(setting.Key, null, setting.Name);
+                return new MinionEntry(setting.Key, companionId, name, false, iconId);
+            })
+            .OrderBy(x => x.Name, GameTextComparison.GetComparer(ClientState.ClientLanguage))
+            .ToArray();
+    }
+
+    public bool MinionNameContains(string name, string filter)
+    {
+        return string.IsNullOrWhiteSpace(filter)
+            || GameTextComparison.Contains(name, filter, ClientState.ClientLanguage);
     }
 
     public void TargetClosestMinion(string key)
@@ -449,13 +486,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private MinionEntry CreateMinionEntry(Dalamud.Game.ClientState.Objects.Types.IGameObject obj, bool isOwn)
     {
-        var name = obj.Name.ToString();
-        if (string.IsNullOrWhiteSpace(name))
-            name = $"Minion {obj.BaseId}";
+        var objectName = obj.Name.ToString();
+        if (string.IsNullOrWhiteSpace(objectName))
+            objectName = $"Minion {obj.BaseId}";
 
-        var key = CreateMinionKey(obj, name);
+        var key = CreateMinionKey(obj, objectName);
+        var name = ResolveMinionName(key, objectName, null);
 
-        return new MinionEntry(key, name, isOwn, GetIconIdForCompanionId(obj.BaseId));
+        return new MinionEntry(key, obj.BaseId, name, isOwn, GetIconIdForCompanionId(obj.BaseId));
     }
 
     private static string CreateMinionKey(IGameObject obj)
@@ -496,6 +534,51 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
         iconIdsByCompanionId[companionId] = iconId;
         return iconId;
+    }
+
+    private string ResolveMinionName(string key, string? objectName, string? savedName)
+    {
+        if (TryGetCompanionId(key, out var companionId)
+            && TryGetCompanionName(companionId, out var companionName))
+            return companionName;
+
+        if (!string.IsNullOrWhiteSpace(objectName))
+            return objectName;
+
+        if (!string.IsNullOrWhiteSpace(savedName))
+            return savedName;
+
+        return TryGetCompanionId(key, out companionId)
+            ? $"Minion {companionId}"
+            : key.StartsWith("name:", StringComparison.Ordinal) ? key[5..] : "Unknown minion";
+    }
+
+    private bool TryGetCompanionName(uint companionId, out string name)
+    {
+        name = string.Empty;
+        if (companionId == 0)
+            return false;
+
+        var language = ClientState.ClientLanguage;
+        var cacheKey = (language, companionId);
+        if (namesByLanguageAndCompanionId.TryGetValue(cacheKey, out var cachedName))
+        {
+            name = cachedName;
+            return !string.IsNullOrWhiteSpace(name);
+        }
+
+        try
+        {
+            if (DataManager.GetExcelSheet<Companion>(language).TryGetRow(companionId, out var companion))
+                name = companion.Singular.ToString() ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "Failed to read Companion name for row {CompanionId} in {Language}.", companionId, language);
+        }
+
+        namesByLanguageAndCompanionId[cacheKey] = name;
+        return !string.IsNullOrWhiteSpace(name);
     }
 
     private static bool TryGetCompanionId(string key, out uint companionId)
@@ -620,7 +703,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     }
 }
 
-public sealed record MinionEntry(string Key, string Name, bool IsOwn, uint IconId);
+public sealed record MinionEntry(string Key, uint CompanionId, string Name, bool IsOwn, uint IconId);
 
 internal sealed record ClientStateSubscription(EventInfo EventInfo, Delegate Handler);
 

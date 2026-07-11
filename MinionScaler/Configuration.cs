@@ -8,6 +8,17 @@ public sealed class Configuration : IPluginConfiguration
     public int Version { get; set; } = 1;
 
     public Dictionary<string, MinionScaleSetting> MinionScales { get; set; } = new();
+
+    public UiLanguage UiLanguage { get; set; } = UiLanguage.Automatic;
+}
+
+public enum UiLanguage
+{
+    Automatic,
+    English,
+    Japanese,
+    German,
+    French,
 }
 
 [Serializable]
