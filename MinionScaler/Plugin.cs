@@ -36,7 +36,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     [PluginService] private static ITextureProvider TextureProvider { get; set; } = null!;
     [PluginService] private static IPluginLog Log { get; set; } = null!;
 
-    private readonly Dictionary<ulong, TrackedScale> trackedScales = new();
+    private readonly Dictionary<nint, TrackedScale> trackedScales = new();
     private readonly Dictionary<string, float> previewScales = new();
     private readonly Dictionary<string, bool> previewApplyToAll = new();
     private readonly Dictionary<uint, uint> iconIdsByCompanionId = new();
@@ -154,8 +154,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
         var hasLocalPlayer = localPlayer != null;
         var localEntityId = hasLocalPlayer ? GetObjectIdPart(localPlayer!.EntityId) : 0;
         var localGameObjectId = hasLocalPlayer ? GetObjectIdPart(localPlayer!.GameObjectId) : 0;
-        var seenThisFrame = new HashSet<ulong>();
-        var frameMinions = ObjectTable.CharacterManagerObjects
+        var seenThisFrame = new HashSet<nint>();
+        var frameMinions = ObjectTable
             .Where(obj => obj.ObjectKind == ObjectKind.Companion && obj.Address != nint.Zero && obj.IsValid())
             .Select(obj =>
             {
@@ -177,14 +177,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
             var obj = frameMinion.Object;
             var minion = frameMinion.Entry;
             var isOwn = frameMinion.IsOwn;
-            var id = obj.GameObjectId;
-            seenThisFrame.Add(id);
+            var trackingAddress = obj.Address;
+            seenThisFrame.Add(trackingAddress);
 
             var gameObject = (GameObject*)obj.Address;
             var drawObject = gameObject->DrawObject;
             if (drawObject == null)
             {
-                RestoreTrackedMinion(id, gameObject);
+                RestoreTrackedMinion(trackingAddress, gameObject);
                 continue;
             }
 
@@ -195,14 +195,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
                     visibleCountsByKey.TryGetValue(minion.Key, out var visibleCount) ? visibleCount : 0,
                     useOwnershipFallback))
             {
-                RestoreTrackedMinion(id, gameObject);
+                RestoreTrackedMinion(trackingAddress, gameObject);
                 continue;
             }
 
             var multiplier = GetScaleForKey(minion.Key);
             if (Math.Abs(multiplier - 1.0f) < 0.001f)
             {
-                RestoreTrackedMinion(id, gameObject);
+                RestoreTrackedMinion(trackingAddress, gameObject);
                 continue;
             }
 
@@ -210,21 +210,21 @@ public sealed unsafe class Plugin : IDalamudPlugin
             var drawObjectAddress = (nint)drawObject;
             var sceneObject = (SceneObject*)drawObject;
 
-            if (trackedScales.TryGetValue(id, out var trackedScale)
+            if (trackedScales.TryGetValue(trackingAddress, out var trackedScale)
                 && (trackedScale.GameObjectAddress != gameObjectAddress || trackedScale.DrawObjectAddress != drawObjectAddress))
             {
-                trackedScales.Remove(id);
+                trackedScales.Remove(trackingAddress);
             }
 
-            if (!trackedScales.TryGetValue(id, out trackedScale))
+            if (!trackedScales.TryGetValue(trackingAddress, out trackedScale))
             {
                 trackedScale = new TrackedScale(
-                    id,
+                    obj.GameObjectId,
                     gameObjectAddress,
                     drawObjectAddress,
                     gameObject->Scale,
                     DrawScale.From(sceneObject));
-                trackedScales[id] = trackedScale;
+                trackedScales[trackingAddress] = trackedScale;
             }
 
             gameObject->Scale = trackedScale.GameScale * multiplier;
@@ -624,42 +624,42 @@ public sealed unsafe class Plugin : IDalamudPlugin
             && uint.TryParse(key.AsSpan(5), out companionId);
     }
 
-    private void RestoreNoLongerMatchingMinions(HashSet<ulong> stillMatching)
+    private void RestoreNoLongerMatchingMinions(HashSet<nint> stillMatching)
     {
-        foreach (var (id, trackedScale) in trackedScales.ToArray())
+        foreach (var (trackingAddress, trackedScale) in trackedScales.ToArray())
         {
-            if (stillMatching.Contains(id))
+            if (stillMatching.Contains(trackingAddress))
                 continue;
 
-            var obj = ObjectTable.SearchById(id);
+            var obj = ObjectTable.FirstOrDefault(candidate => candidate.Address == trackingAddress);
             if (obj != null && obj.Address != nint.Zero && obj.IsValid() && obj.ObjectKind == ObjectKind.Companion)
             {
                 var gameObject = (GameObject*)obj.Address;
-                RestoreTrackedMinion(id, gameObject);
+                RestoreTrackedMinion(trackingAddress, gameObject);
             }
 
-            ClearTrackedMinion(id);
+            ClearTrackedMinion(trackingAddress);
         }
     }
 
     private void RestoreTrackedMinions()
     {
-        foreach (var (id, trackedScale) in trackedScales.ToArray())
+        foreach (var (trackingAddress, trackedScale) in trackedScales.ToArray())
         {
-            var obj = ObjectTable.SearchById(id);
+            var obj = ObjectTable.FirstOrDefault(candidate => candidate.Address == trackingAddress);
             if (obj != null && obj.Address != nint.Zero && obj.IsValid() && obj.ObjectKind == ObjectKind.Companion)
             {
                 var gameObject = (GameObject*)obj.Address;
-                RestoreTrackedMinion(id, gameObject);
+                RestoreTrackedMinion(trackingAddress, gameObject);
             }
         }
 
         trackedScales.Clear();
     }
 
-    private void RestoreDrawObjectScale(ulong id, GameObject* gameObject)
+    private void RestoreDrawObjectScale(nint trackingAddress, GameObject* gameObject)
     {
-        if (!trackedScales.TryGetValue(id, out var trackedScale))
+        if (!trackedScales.TryGetValue(trackingAddress, out var trackedScale))
             return;
 
         var drawObject = gameObject->DrawObject;
@@ -671,18 +671,18 @@ public sealed unsafe class Plugin : IDalamudPlugin
         drawObject->NotifyTransformChanged();
     }
 
-    private void RestoreTrackedMinion(ulong id, GameObject* gameObject)
+    private void RestoreTrackedMinion(nint trackingAddress, GameObject* gameObject)
     {
-        if (trackedScales.TryGetValue(id, out var trackedScale))
+        if (trackedScales.TryGetValue(trackingAddress, out var trackedScale))
             gameObject->Scale = trackedScale.GameScale;
 
-        RestoreDrawObjectScale(id, gameObject);
-        ClearTrackedMinion(id);
+        RestoreDrawObjectScale(trackingAddress, gameObject);
+        ClearTrackedMinion(trackingAddress);
     }
 
-    private void ClearTrackedMinion(ulong id)
+    private void ClearTrackedMinion(nint trackingAddress)
     {
-        trackedScales.Remove(id);
+        trackedScales.Remove(trackingAddress);
     }
 
     private void ClearScaleCacheForWorldChange()
