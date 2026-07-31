@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for reporting a problem. Minion Scaler is an early beta, so detailed reproduction information is especially useful.
+        Thank you for reporting a problem. Detailed reproduction information is especially useful.
 
         Before submitting, check the [FAQ](https://github.com/miqote69/MinionScalerRepo/wiki/FAQ) and [Troubleshooting](https://github.com/miqote69/MinionScalerRepo/wiki/Troubleshooting) pages.
 
@@ -26,7 +26,7 @@ body:
     attributes:
       label: Minion Scaler version
       description: Shown in the Minion Scaler window title or Dalamud Plugin Installer.
-      placeholder: "0.0.0.30"
+      placeholder: "1.0.0.0"
     validations:
       required: true
 
