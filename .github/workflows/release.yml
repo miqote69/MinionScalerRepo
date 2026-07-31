@@ -76,28 +76,59 @@ jobs:
             Select-Object FullName, Length |
             Format-Table -AutoSize
 
-      - name: Create custom repository JSON
-        shell: pwsh
-        run: |
-          [xml]$projectXml = Get-Content MinionScaler/MinionScaler.csproj
-          $version = $projectXml.Project.PropertyGroup.Version
-          $tag = "${{ github.ref_name }}"
-          if ("${{ github.event_name }}" -eq "release") {
-            $tag = "${{ github.event.release.tag_name }}"
-          }
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $tag = "manual"
-          }
-          New-Item -ItemType Directory -Force -Path public | Out-Null
-          ./scripts/make-repo-json.ps1 `
-            -Owner "${{ github.repository_owner }}" `
-            -Repository "${{ github.event.repository.name }}" `
-            -Version $version `
-            -Tag $tag `
-            -OutputPath public/repo.json
-
       - name: Upload release asset
         if: github.event_name != 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/MinionScaler.zip
+
+      - name: Checkout custom repository feed
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: feed-main
+
+      - name: Publish custom repository feed
+        if: github.event_name != 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          [xml]$projectXml = Get-Content MinionScaler/MinionScaler.csproj
+          $version = [string]$projectXml.Project.PropertyGroup.Version
+          $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "release") {
+            $tag = "${{ github.event.release.tag_name }}"
+          }
+
+          $relativeFeedPath = ".dalamud/754623bc9780f1da0b27ed0a0968a170cee25b6a94cd0f2d/repo.json"
+          $feedPath = Join-Path "feed-main" $relativeFeedPath
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/MinionScaler.zip"
+
+          if (Test-Path -LiteralPath $feedPath) {
+            $currentEntry = @(Get-Content -LiteralPath $feedPath -Raw | ConvertFrom-Json)[0]
+            if ($currentEntry.AssemblyVersion -eq $version -and
+                $currentEntry.DownloadLinkInstall -eq $downloadUrl) {
+              Write-Host "Custom repository feed already points to $tag."
+              exit 0
+            }
+          }
+
+          ./scripts/make-repo-json.ps1 `
+            -Owner "${{ github.repository_owner }}" `
+            -Repository "${{ github.event.repository.name }}" `
+            -Version $version `
+            -Tag $tag `
+            -OutputPath $feedPath
+
+          Set-Location feed-main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- $relativeFeedPath
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Custom repository feed is unchanged."
+            exit 0
+          }
+
+          git commit -m "Update custom repository feed for $tag"
+          git push origin HEAD:main
