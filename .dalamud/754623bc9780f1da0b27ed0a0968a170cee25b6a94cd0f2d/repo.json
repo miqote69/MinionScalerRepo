@@ -1,27 +1,27 @@
 [
-    {
-        "Author":  "miqote69",
-        "Name":  "Minion Scaler",
-        "Description":  "Adjusts the local display scale of minions. Use /minionscaler to configure.",
-        "InternalName":  "MinionScaler",
-        "AssemblyVersion":  "0.0.0.30",
-        "TestingAssemblyVersion":  null,
-        "RepoUrl":  "https://github.com/miqote69/MinionScalerRepo",
-        "ApplicableVersion":  "any",
-        "DalamudApiLevel":  15,
-        "Punchline":  "Changes visible minion size locally.",
-        "Tags":  [
-                     "minion",
-                     "companion",
-                     "cosmetic"
-                 ],
-        "MinimumDalamudVersion":  "15.0.0.0",
-        "IsHide":  false,
-        "IsTestingExclusive":  false,
-        "IconUrl":  "https://raw.githubusercontent.com/miqote69/MinionScalerRepo/main/Assets/icon-v2.png",
-        "DownloadLinkInstall":  "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.30/MinionScaler.zip",
-        "DownloadLinkTesting":  "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.30/MinionScaler.zip",
-        "DownloadLinkUpdate":  "https://github.com/miqote69/MinionScalerRepo/releases/download/v0.0.0.30/MinionScaler.zip",
-        "LastUpdate":  1783824043
-    }
+  {
+    "Author": "miqote69",
+    "Name": "Minion Scaler",
+    "Description": "Adjusts the local display scale of minions. Use /minionscaler to configure.",
+    "InternalName": "MinionScaler",
+    "AssemblyVersion": "1.0.0.0",
+    "TestingAssemblyVersion": null,
+    "RepoUrl": "https://github.com/miqote69/MinionScalerRepo",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "Punchline": "Changes visible minion size locally.",
+    "Tags": [
+      "minion",
+      "companion",
+      "cosmetic"
+    ],
+    "MinimumDalamudVersion": "15.0.0.0",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "IconUrl": "https://raw.githubusercontent.com/miqote69/MinionScalerRepo/main/Assets/icon-v2.png",
+    "DownloadLinkInstall": "https://github.com/miqote69/MinionScalerRepo/releases/download/v1.0.0.0/MinionScaler.zip",
+    "DownloadLinkTesting": "https://github.com/miqote69/MinionScalerRepo/releases/download/v1.0.0.0/MinionScaler.zip",
+    "DownloadLinkUpdate": "https://github.com/miqote69/MinionScalerRepo/releases/download/v1.0.0.0/MinionScaler.zip",
+    "LastUpdate": 1785487810
+  }
 ]
