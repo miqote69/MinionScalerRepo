@@ -26,7 +26,7 @@ body:
     attributes:
       label: Minion Scaler version
       description: Shown in the Minion Scaler window title or Dalamud Plugin Installer.
-      placeholder: "1.0.0.0"
+      placeholder: "1.0.0.1"
     validations:
       required: true
 

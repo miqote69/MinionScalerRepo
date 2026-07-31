@@ -18,7 +18,7 @@
     "MinimumDalamudVersion": "15.0.0.0",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "IconUrl": "https://raw.githubusercontent.com/miqote69/MinionScalerRepo/main/Assets/icon-v2.png",
+    "IconUrl": "https://raw.githubusercontent.com/miqote69/MinionScalerRepo/main/Assets/icon-v3.png",
     "DownloadLinkInstall": "https://github.com/miqote69/MinionScalerRepo/releases/download/v1.0.0.0/MinionScaler.zip",
     "DownloadLinkTesting": "https://github.com/miqote69/MinionScalerRepo/releases/download/v1.0.0.0/MinionScaler.zip",
     "DownloadLinkUpdate": "https://github.com/miqote69/MinionScalerRepo/releases/download/v1.0.0.0/MinionScaler.zip",

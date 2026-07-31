@@ -71,7 +71,34 @@ jobs:
           } else {
             Compress-Archive -Path "$($releaseDir.FullName)/*" -DestinationPath artifacts/MinionScaler.zip -Force
           }
+
+          Add-Type -AssemblyName System.IO.Compression
           Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $artifactPath = (Resolve-Path artifacts/MinionScaler.zip).Path
+          $iconPath = Join-Path $releaseDir.FullName "images/icon.png"
+          if (-not (Test-Path -LiteralPath $iconPath)) {
+            throw "Plugin icon was not found at $iconPath."
+          }
+
+          $artifactZip = [System.IO.Compression.ZipFile]::Open(
+            $artifactPath,
+            [System.IO.Compression.ZipArchiveMode]::Update
+          )
+          try {
+            $existingIcon = $artifactZip.GetEntry("images/icon.png")
+            if ($existingIcon) {
+              $existingIcon.Delete()
+            }
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+              $artifactZip,
+              $iconPath,
+              "images/icon.png",
+              [System.IO.Compression.CompressionLevel]::Optimal
+            ) | Out-Null
+          } finally {
+            $artifactZip.Dispose()
+          }
+
           [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path artifacts/MinionScaler.zip)).Entries |
             Select-Object FullName, Length |
             Format-Table -AutoSize
