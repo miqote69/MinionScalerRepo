@@ -15,7 +15,7 @@ param(
     [string] $OutputPath
 )
 
-$downloadUrl = "https://github.com/$Owner/$Repository/releases/download/$Tag/MinionScaler.zip"
+$downloadBaseUrl = "https://downloads.miqote69.com/minion-scaler/$Tag"
 $repoUrl = "https://github.com/$Owner/$Repository"
 $lastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
@@ -39,9 +39,9 @@ $entry = [ordered]@{
     IsHide = $false
     IsTestingExclusive = $false
     IconUrl = "https://raw.githubusercontent.com/$Owner/$Repository/main/Assets/icon-v3.png"
-    DownloadLinkInstall = $downloadUrl
-    DownloadLinkTesting = $downloadUrl
-    DownloadLinkUpdate = $downloadUrl
+    DownloadLinkInstall = "$downloadBaseUrl/install"
+    DownloadLinkTesting = "$downloadBaseUrl/testing"
+    DownloadLinkUpdate = "$downloadBaseUrl/update"
     LastUpdate = $lastUpdate
 }
 
